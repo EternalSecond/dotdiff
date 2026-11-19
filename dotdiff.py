@@ -1,7 +1,10 @@
 """Compare Windows and NixOS package lists."""
 import argparse
 import json
+import re
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 def read_packages(path):
@@ -23,12 +26,47 @@ def read_aliases(path):
     return {name.strip(): target.strip() for name, target in aliases.items()}
 
 
+def latest_release(repo):
+    if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repo) or repo.split("/")[1] in {".", ".."}:
+        raise ValueError("Expected a GitHub repository in owner/repo format")
+
+    request = Request(
+        f"https://api.github.com/repos/{repo}/releases/latest",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "dotdiff"},
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            release = json.load(response)
+    except HTTPError as error:
+        if error.code == 404:
+            raise ValueError(f"No public latest release found for {repo}") from error
+        raise ValueError(f"GitHub API returned HTTP {error.code} for {repo}") from error
+    except (URLError, TimeoutError) as error:
+        raise ValueError(f"Could not reach the GitHub API: {error}") from error
+
+    return release["tag_name"], release["html_url"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("windows", type=Path, help="Windows package list")
-    parser.add_argument("nixos", type=Path, help="NixOS package list")
+    parser.add_argument("windows", type=Path, nargs="?", help="Windows package list")
+    parser.add_argument("nixos", type=Path, nargs="?", help="NixOS package list")
     parser.add_argument("--aliases", type=Path, help="JSON mapping Windows names to NixOS names")
+    parser.add_argument("--github", metavar="OWNER/REPO", help="show the latest public GitHub release")
     args = parser.parse_args()
+
+    if args.github is not None:
+        if args.windows is not None or args.nixos is not None or args.aliases is not None:
+            parser.error("--github cannot be combined with package lists or --aliases")
+        try:
+            tag, url = latest_release(args.github)
+        except ValueError as error:
+            parser.error(str(error))
+        print(f"{args.github}: {tag}\n{url}")
+        return
+
+    if args.windows is None or args.nixos is None:
+        parser.error("provide both package lists or use --github OWNER/REPO")
 
     try:
         windows = read_packages(args.windows)
