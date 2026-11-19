@@ -38,3 +38,11 @@ On both (1)
 ```
 
 Omit `--aliases` to compare names exactly. Use `python3` or `py` if that is how you launch Python.
+
+## Look up a GitHub release
+
+Fetch the latest release of a public repository using the GitHub REST API. The command prints the release tag and its URL. It requires internet access and uses the API without a token.
+
+```sh
+python dotdiff.py --github BurntSushi/ripgrep
+```
